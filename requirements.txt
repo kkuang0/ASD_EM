@@ -225,7 +225,6 @@ py2vega==0.6.1
 py4j==0.10.9.8
 pyaml==25.1.0
 pyarrow==18.1.0
-pycairo==1.27.0
 pycodestyle==2.12.1
 pyconify==0.2
 pycparser==2.22
