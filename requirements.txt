@@ -187,7 +187,7 @@ nltk==3.9.1
 notebook==7.3.2
 notebook_shim==0.2.4
 numba==0.60.0
-numpy==1.26.4
+numpy==2.0
 numpydoc==1.8.0
 openai==1.59.7
 openai-whisper==20240930
