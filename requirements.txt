@@ -284,7 +284,7 @@ scalene==1.5.41
 scikit-image==0.25.0
 scikit-learn==1.6.1
 scikit-optimize==0.10.2
-scipy==1.7
+scipy
 seaborn==0.13.2
 SecretStorage==3.3.3
 Send2Trash==1.8.3
