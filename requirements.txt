@@ -168,7 +168,6 @@ matplotlib==3.10.0
 matplotlib-inline==0.1.7
 mccabe==0.7.0
 mdurl==0.1.2
-menuinst==2.1.2
 mistune==3.1.0
 ml_dtypes==0.5.1
 more-itertools==10.6.0
