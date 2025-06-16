@@ -27,7 +27,6 @@ beautifulsoup4==4.12.3
 binaryornot==0.4.4
 black==24.10.0
 bleach==6.2.0
-blis==1.0.1
 bokeh==3.6.2
 botocore==1.35.88
 Bottleneck==1.4.2
@@ -187,7 +186,7 @@ nltk==3.9.1
 notebook==7.3.2
 notebook_shim==0.2.4
 numba==0.60.0
-numpy==2.0
+numpy==1.23.2
 numpydoc==1.8.0
 openai==1.59.7
 openai-whisper==20240930
