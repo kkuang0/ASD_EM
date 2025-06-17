@@ -29,7 +29,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def build_config(args, rank):
+def build_config(args, rank, world_size):
     cfg = SimpleNamespace()
     # Dataset and model settings
     cfg.csv_path = args.csv
@@ -51,13 +51,17 @@ def build_config(args, rank):
     cfg.task_weights = {'pathology': 1.0, 'region': 1.0, 'depth': 1.0}
 
     # DDP parameters
-    cfg.distributed = True
-    cfg.world_size = 4
+    cfg.distributed = world_size > 1
+    cfg.world_size = world_size
     cfg.rank = rank
     cfg.local_rank = rank
-    cfg.dist_backend = 'nccl'
+    if torch.cuda.is_available() and world_size > 0:
+        cfg.dist_backend = 'nccl'
+        cfg.device = 'cuda'
+    else:
+        cfg.dist_backend = 'gloo'
+        cfg.device = 'cpu'
     cfg.dist_url = f'tcp://127.0.0.1:{args.port}'
-    cfg.device = 'cuda'
 
     # Other options
     cfg.mixed_precision = True
@@ -67,8 +71,8 @@ def build_config(args, rank):
     return cfg
 
 
-def main_worker(rank, args):
-    config = build_config(args, rank)
+def main_worker(rank, args, world_size):
+    config = build_config(args, rank, world_size)
     trainer = DDPTrainer(config)
     trainer.train_cross_validation()
     trainer.cleanup()
@@ -76,7 +80,10 @@ def main_worker(rank, args):
 
 def main():
     args = parse_args()
-    mp.spawn(main_worker, nprocs=4, args=(args,))
+    world_size = torch.cuda.device_count()
+    if world_size == 0:
+        world_size = 1  # fallback to CPU training
+    mp.spawn(main_worker, nprocs=world_size, args=(args, world_size))
 
 
 if __name__ == '__main__':

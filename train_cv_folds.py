@@ -25,7 +25,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def build_config(args, rank, n_splits):
+def build_config(args, rank, n_splits, world_size):
     cfg = SimpleNamespace()
     cfg.csv_path = args.csv  # for logging/reference
     cfg.output_dir = args.output_dir
@@ -44,13 +44,17 @@ def build_config(args, rank, n_splits):
     cfg.task_weights = {'pathology': 1.0, 'region': 1.0, 'depth': 1.0}
 
     # DDP settings
-    cfg.distributed = True
-    cfg.world_size = 4
+    cfg.distributed = world_size > 1
+    cfg.world_size = world_size
     cfg.rank = rank
     cfg.local_rank = rank
-    cfg.dist_backend = 'nccl'
+    if torch.cuda.is_available() and world_size > 0:
+        cfg.dist_backend = 'nccl'
+        cfg.device = 'cuda'
+    else:
+        cfg.dist_backend = 'gloo'
+        cfg.device = 'cpu'
     cfg.dist_url = f'tcp://127.0.0.1:{args.port}'
-    cfg.device = 'cuda'
 
     # Other options
     cfg.mixed_precision = True
@@ -60,8 +64,8 @@ def build_config(args, rank, n_splits):
     return cfg
 
 
-def main_worker(rank, args, df, fold_ids):
-    config = build_config(args, rank, len(fold_ids))
+def main_worker(rank, args, df, fold_ids, world_size):
+    config = build_config(args, rank, len(fold_ids), world_size)
     trainer = DDPTrainer(config)
 
     # Prepare folds only on rank 0 then broadcast
@@ -89,11 +93,14 @@ def main_worker(rank, args, df, fold_ids):
 
 def main():
     args = parse_args()
+    world_size = torch.cuda.device_count()
+    if world_size == 0:
+        world_size = 1
     df = pd.read_csv(args.csv)
     if 'fold' not in df.columns:
         raise ValueError("CSV must contain a 'fold' column")
     fold_ids = sorted(df['fold'].unique())
-    mp.spawn(main_worker, nprocs=4, args=(args, df, fold_ids))
+    mp.spawn(main_worker, nprocs=world_size, args=(args, df, fold_ids, world_size))
 
 
 if __name__ == '__main__':
