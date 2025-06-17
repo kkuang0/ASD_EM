@@ -7,7 +7,11 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.optim.lr_scheduler import (
+    CosineAnnealingWarmRestarts,
+    ReduceLROnPlateau,
+    StepLR,
+)
 import numpy as np
 import os
 import pickle
@@ -249,6 +253,33 @@ class DDPTrainer:
             focal_gamma=getattr(self.config, 'focal_gamma', 2.0),
             normalize_weights=getattr(self.config, 'normalize_task_weights', True)
         )
+    def _create_scheduler(self, optimizer: torch.optim.Optimizer):
+        """Create a learning rate scheduler from configuration."""
+        sched_type = getattr(self.config, "scheduler", "cosine").lower()
+
+        if sched_type == "step":
+            return StepLR(
+                optimizer,
+                step_size=getattr(self.config, "scheduler_step_size", 10),
+                gamma=getattr(self.config, "scheduler_gamma", 0.1),
+            )
+        elif sched_type == "plateau":
+            return ReduceLROnPlateau(
+                optimizer,
+                mode="min",
+                factor=getattr(self.config, "scheduler_factor", 0.1),
+                patience=getattr(self.config, "scheduler_patience", 5),
+            )
+        elif sched_type == "none":
+            return None
+        else:
+            return CosineAnnealingWarmRestarts(
+                optimizer,
+                T_0=getattr(self.config, "scheduler_T0", 10),
+                T_mult=getattr(self.config, "scheduler_T_mult", 2),
+                eta_min=getattr(self.config, "scheduler_eta_min", 1e-6),
+            )
+
     
     def calculate_loss(self, outputs: Dict[str, torch.Tensor], 
                       labels: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
@@ -387,13 +418,8 @@ class DDPTrainer:
             eps=1e-8
         )
         
-        # Cosine annealing with warm restarts
-        scheduler = CosineAnnealingWarmRestarts(
-            optimizer, 
-            T_0=getattr(self.config, 'scheduler_T0', 10),
-            T_mult=getattr(self.config, 'scheduler_T_mult', 2),
-            eta_min=getattr(self.config, 'scheduler_eta_min', 1e-6)
-        )
+        # Learning rate scheduler
+        scheduler = self._create_scheduler(optimizer)
         
         # Mixed precision scaler
         scaler = GradScaler(enabled=getattr(self.config, 'mixed_precision', True))
@@ -437,7 +463,11 @@ class DDPTrainer:
                 val_loss = val_loss_tensor.item() / self.config.world_size
             
             # Learning rate scheduling
-            scheduler.step()
+            if scheduler:
+                if isinstance(scheduler, ReduceLROnPlateau):
+                    scheduler.step(val_loss)
+                else:
+                    scheduler.step()
             
             # Calculate average validation accuracy
             avg_val_acc = np.mean(list(val_accuracies.values()))
