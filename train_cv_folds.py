@@ -1,6 +1,7 @@
 import argparse
 import pandas as pd
 import torch.multiprocessing as mp
+import torch
 from types import SimpleNamespace
 
 from src.training.ddp_trainer import DDPTrainer
