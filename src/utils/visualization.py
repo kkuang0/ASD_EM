@@ -134,8 +134,9 @@ def plot_roc_curves(labels_dict, probabilities_dict, task_names):
         axes = [axes]
     
     for idx, task in enumerate(task_names):
-        labels = labels_dict[task]
-        probs = probabilities_dict[task]
+        # Convert inputs to numpy arrays for easier indexing
+        labels = np.asarray(labels_dict[task])
+        probs = np.asarray(probabilities_dict[task])
         
         if probs.shape[1] == 2:  # Binary classification
             fpr, tpr, _ = roc_curve(labels, probs[:, 1])  # use positive class prob
@@ -172,8 +173,9 @@ def plot_pr_curves(labels_dict, probabilities_dict, task_names):
         axes = [axes]
     
     for idx, task in enumerate(task_names):
-        labels = labels_dict[task]
-        probs = probabilities_dict[task]
+        # Convert inputs to numpy arrays for easier indexing
+        labels = np.asarray(labels_dict[task])
+        probs = np.asarray(probabilities_dict[task])
         
         if probs.shape[1] == 2:  # Binary classification
             precision, recall, _ = precision_recall_curve(labels, probs[:, 1])
