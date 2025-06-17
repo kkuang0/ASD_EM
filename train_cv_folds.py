@@ -41,7 +41,7 @@ def build_config(args, rank, n_splits, world_size):
 
     # Multi-task setup
     cfg.num_classes = {'pathology': 2, 'region': 3, 'depth': 2}
-    cfg.task_weights = {'pathology': 1.0, 'region': 1.0, 'depth': 1.0}
+    cfg.task_weights = {'pathology': 1.0, 'region': 2.0, 'depth': 0.8}
 
     # DDP settings
     cfg.distributed = world_size > 1
