@@ -43,8 +43,8 @@ class DDPTrainer:
         # Initialize distributed training
         if config.distributed:
             self._setup_distributed()
-        
-        # Set device
+
+        # Set device (after process group init to ensure correct device assignment)
         if config.distributed:
             torch.cuda.set_device(config.local_rank)
             self.device = torch.device(f"cuda:{config.local_rank}")
@@ -75,6 +75,10 @@ class DDPTrainer:
     
     def _setup_distributed(self):
         """Initialize distributed training"""
+        # Ensure each process uses the correct GPU before initializing NCCL
+        if torch.cuda.is_available():
+            torch.cuda.set_device(self.config.local_rank)
+
         dist.init_process_group(
             backend=self.config.dist_backend,
             init_method=self.config.dist_url,
