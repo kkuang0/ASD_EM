@@ -638,3 +638,4 @@ class DDPTrainer:
         """Cleanup distributed training"""
         if self.config.distributed:
             dist.destroy_process_group()
+

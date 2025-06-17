@@ -18,6 +18,12 @@ def parse_args():
                         choices=['cosine', 'plateau', 'step', 'none'],
                         help='Learning rate scheduler type')
     parser.add_argument('--backbone', type=str, default='resnet18')
+    parser.add_argument('--n-splits', type=int, default=5,
+                        help='Number of cross-validation folds')
+    parser.add_argument('--holdout-frac', type=float, default=0.2,
+                        help='Fraction of data to reserve for testing')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Random seed for data splitting')
     parser.add_argument('--port', type=int, default=12355,
                         help='Port for distributed training init')
     return parser.parse_args()
@@ -34,6 +40,9 @@ def build_config(args, rank):
     cfg.lr = args.lr
     cfg.scheduler = args.scheduler
     cfg.backbone = args.backbone
+    cfg.n_splits = args.n_splits
+    cfg.holdout_frac = args.holdout_frac
+    cfg.random_seed = args.seed
     cfg.dropout_rate = 0.2
     cfg.feature_dim = 512
 
