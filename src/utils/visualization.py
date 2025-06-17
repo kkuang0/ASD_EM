@@ -4,6 +4,13 @@ from PIL import Image
 import torch
 from typing import List, Tuple
 import seaborn as sns
+from sklearn.metrics import (
+    roc_curve,
+    auc,
+    precision_recall_curve,
+    average_precision_score,
+)
+from sklearn.preprocessing import label_binarize
 
 def plot_sample_images(dataset, num_samples: int = 8, save_path: str = None):
     """Plot sample images from the dataset"""
@@ -116,5 +123,64 @@ def create_results_summary(results_df, save_path: str = None):
     
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    
+
+    return fig
+
+
+def plot_roc_curves(labels_dict, prob_dict, task_names):
+    """Plot ROC curves for multiple tasks."""
+    n_tasks = len(task_names)
+    fig, axes = plt.subplots(1, n_tasks, figsize=(5 * n_tasks, 4))
+    if n_tasks == 1:
+        axes = [axes]
+
+    for i, task in enumerate(task_names):
+        labels = np.array(labels_dict[task])
+        probs = np.array(prob_dict[task])
+        if probs.ndim == 1 or probs.shape[1] == 1:
+            if probs.ndim > 1:
+                probs = probs[:, 1]
+            fpr, tpr, _ = roc_curve(labels, probs)
+            auc_score = auc(fpr, tpr)
+        else:
+            labels_bin = label_binarize(labels, classes=np.arange(probs.shape[1]))
+            fpr, tpr, _ = roc_curve(labels_bin.ravel(), probs.ravel())
+            auc_score = auc(fpr, tpr)
+        axes[i].plot(fpr, tpr, label=f"AUC={auc_score:.3f}")
+        axes[i].plot([0, 1], [0, 1], "k--")
+        axes[i].set_xlabel("FPR")
+        axes[i].set_ylabel("TPR")
+        axes[i].set_title(f"{task.capitalize()} ROC")
+        axes[i].legend()
+
+    plt.tight_layout()
+    return fig
+
+
+def plot_pr_curves(labels_dict, prob_dict, task_names):
+    """Plot precision-recall curves for multiple tasks."""
+    n_tasks = len(task_names)
+    fig, axes = plt.subplots(1, n_tasks, figsize=(5 * n_tasks, 4))
+    if n_tasks == 1:
+        axes = [axes]
+
+    for i, task in enumerate(task_names):
+        labels = np.array(labels_dict[task])
+        probs = np.array(prob_dict[task])
+        if probs.ndim == 1 or probs.shape[1] == 1:
+            if probs.ndim > 1:
+                probs = probs[:, 1]
+            precision, recall, _ = precision_recall_curve(labels, probs)
+            ap_score = average_precision_score(labels, probs)
+        else:
+            labels_bin = label_binarize(labels, classes=np.arange(probs.shape[1]))
+            precision, recall, _ = precision_recall_curve(labels_bin.ravel(), probs.ravel())
+            ap_score = average_precision_score(labels_bin, probs, average="micro")
+        axes[i].plot(recall, precision, label=f"AP={ap_score:.3f}")
+        axes[i].set_xlabel("Recall")
+        axes[i].set_ylabel("Precision")
+        axes[i].set_title(f"{task.capitalize()} PR")
+        axes[i].legend()
+
+    plt.tight_layout()
     return fig
