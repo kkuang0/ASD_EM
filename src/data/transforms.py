@@ -3,6 +3,19 @@ from typing import List, Optional
 import torch
 
 
+class RandomGaussianNoise:
+    """Add Gaussian noise to a tensor with probability ``p``."""
+
+    def __init__(self, std: float = 0.01, p: float = 0.3):
+        self.std = std
+        self.p = p
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if torch.rand(1) < self.p:
+            return tensor + torch.randn_like(tensor) * self.std
+        return tensor
+
+
 class GrayscaleNormalize(transforms.Normalize):
     """Custom normalization for grayscale images converted to 3-channel"""
     def __init__(self):
@@ -80,7 +93,7 @@ def get_em_transforms(image_size: int = 224,
         GrayscaleNormalize(),
         
         # Add slight Gaussian noise to simulate EM imaging conditions
-        transforms.Lambda(lambda x: x + torch.randn_like(x) * 0.01 if torch.rand(1) < 0.3 else x),
+        RandomGaussianNoise(std=0.01, p=0.3),
     ]
     
     return transforms.Compose(training_transforms)
