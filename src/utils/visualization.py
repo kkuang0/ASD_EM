@@ -127,60 +127,75 @@ def create_results_summary(results_df, save_path: str = None):
     return fig
 
 
-def plot_roc_curves(labels_dict, prob_dict, task_names):
-    """Plot ROC curves for multiple tasks."""
-    n_tasks = len(task_names)
-    fig, axes = plt.subplots(1, n_tasks, figsize=(5 * n_tasks, 4))
-    if n_tasks == 1:
+def plot_roc_curves(labels_dict, probabilities_dict, task_names):
+    """Plot ROC curves for each task (binary) or one-vs-rest (multi-class)"""
+    fig, axes = plt.subplots(1, len(task_names), figsize=(5*len(task_names), 4))
+    if len(task_names) == 1:
         axes = [axes]
-
-    for i, task in enumerate(task_names):
-        labels = np.array(labels_dict[task])
-        probs = np.array(prob_dict[task])
-        if probs.ndim == 1 or probs.shape[1] == 1:
-            if probs.ndim > 1:
-                probs = probs[:, 1]
-            fpr, tpr, _ = roc_curve(labels, probs)
+    
+    for idx, task in enumerate(task_names):
+        labels = labels_dict[task]
+        probs = probabilities_dict[task]
+        
+        if probs.shape[1] == 2:  # Binary classification
+            fpr, tpr, _ = roc_curve(labels, probs[:, 1])  # use positive class prob
             auc_score = auc(fpr, tpr)
-        else:
-            labels_bin = label_binarize(labels, classes=np.arange(probs.shape[1]))
-            fpr, tpr, _ = roc_curve(labels_bin.ravel(), probs.ravel())
-            auc_score = auc(fpr, tpr)
-        axes[i].plot(fpr, tpr, label=f"AUC={auc_score:.3f}")
-        axes[i].plot([0, 1], [0, 1], "k--")
-        axes[i].set_xlabel("FPR")
-        axes[i].set_ylabel("TPR")
-        axes[i].set_title(f"{task.capitalize()} ROC")
-        axes[i].legend()
-
+            axes[idx].plot(fpr, tpr, label=f'AUC = {auc_score:.3f}')
+            axes[idx].plot([0, 1], [0, 1], 'k--', alpha=0.5)
+            axes[idx].set_xlabel('False Positive Rate')
+            axes[idx].set_ylabel('True Positive Rate')
+            axes[idx].set_title(f'ROC Curve - {task}')
+            axes[idx].legend()
+            
+        else:  # Multi-class classification (one-vs-rest)
+            for class_idx in range(probs.shape[1]):
+                # Convert to binary: current class vs all others
+                binary_labels = (labels == class_idx).astype(int)
+                fpr, tpr, _ = roc_curve(binary_labels, probs[:, class_idx])
+                auc_score = auc(fpr, tpr)
+                axes[idx].plot(fpr, tpr, label=f'Class {class_idx} AUC = {auc_score:.3f}')
+            
+            axes[idx].plot([0, 1], [0, 1], 'k--', alpha=0.5)
+            axes[idx].set_xlabel('False Positive Rate')
+            axes[idx].set_ylabel('True Positive Rate')
+            axes[idx].set_title(f'ROC Curves - {task} (One-vs-Rest)')
+            axes[idx].legend()
+    
     plt.tight_layout()
     return fig
 
 
-def plot_pr_curves(labels_dict, prob_dict, task_names):
-    """Plot precision-recall curves for multiple tasks."""
-    n_tasks = len(task_names)
-    fig, axes = plt.subplots(1, n_tasks, figsize=(5 * n_tasks, 4))
-    if n_tasks == 1:
+def plot_pr_curves(labels_dict, probabilities_dict, task_names):
+    """Plot PR curves for each task (binary) or one-vs-rest (multi-class)"""
+    fig, axes = plt.subplots(1, len(task_names), figsize=(5*len(task_names), 4))
+    if len(task_names) == 1:
         axes = [axes]
-
-    for i, task in enumerate(task_names):
-        labels = np.array(labels_dict[task])
-        probs = np.array(prob_dict[task])
-        if probs.ndim == 1 or probs.shape[1] == 1:
-            if probs.ndim > 1:
-                probs = probs[:, 1]
-            precision, recall, _ = precision_recall_curve(labels, probs)
-            ap_score = average_precision_score(labels, probs)
-        else:
-            labels_bin = label_binarize(labels, classes=np.arange(probs.shape[1]))
-            precision, recall, _ = precision_recall_curve(labels_bin.ravel(), probs.ravel())
-            ap_score = average_precision_score(labels_bin, probs, average="micro")
-        axes[i].plot(recall, precision, label=f"AP={ap_score:.3f}")
-        axes[i].set_xlabel("Recall")
-        axes[i].set_ylabel("Precision")
-        axes[i].set_title(f"{task.capitalize()} PR")
-        axes[i].legend()
-
+    
+    for idx, task in enumerate(task_names):
+        labels = labels_dict[task]
+        probs = probabilities_dict[task]
+        
+        if probs.shape[1] == 2:  # Binary classification
+            precision, recall, _ = precision_recall_curve(labels, probs[:, 1])
+            ap_score = average_precision_score(labels, probs[:, 1])
+            axes[idx].plot(recall, precision, label=f'AP = {ap_score:.3f}')
+            axes[idx].set_xlabel('Recall')
+            axes[idx].set_ylabel('Precision')
+            axes[idx].set_title(f'PR Curve - {task}')
+            axes[idx].legend()
+            
+        else:  # Multi-class classification (one-vs-rest)
+            for class_idx in range(probs.shape[1]):
+                # Convert to binary: current class vs all others
+                binary_labels = (labels == class_idx).astype(int)
+                precision, recall, _ = precision_recall_curve(binary_labels, probs[:, class_idx])
+                ap_score = average_precision_score(binary_labels, probs[:, class_idx])
+                axes[idx].plot(recall, precision, label=f'Class {class_idx} AP = {ap_score:.3f}')
+            
+            axes[idx].set_xlabel('Recall')
+            axes[idx].set_ylabel('Precision')
+            axes[idx].set_title(f'PR Curves - {task} (One-vs-Rest)')
+            axes[idx].legend()
+    
     plt.tight_layout()
     return fig
