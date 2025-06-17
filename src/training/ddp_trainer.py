@@ -13,6 +13,7 @@ from torch.optim.lr_scheduler import (
     StepLR,
 )
 import numpy as np
+import matplotlib.pyplot as plt
 import os
 import pickle
 from datetime import datetime
@@ -21,7 +22,13 @@ from collections import Counter
 
 from ..data import EMAxonDataset, get_em_transforms, get_backbone_image_size, create_splits
 from ..models import MultiTaskCNN
-from ..utils import setup_logging, calculate_metrics
+from ..utils import (
+    setup_logging,
+    calculate_metrics,
+    plot_sample_images,
+    plot_roc_curves,
+    plot_pr_curves,
+)
 from .evaluator import ModelEvaluator
 from .losses import MultiTaskLoss  # Updated import
 
@@ -289,13 +296,21 @@ class DDPTrainer:
         
         return self.criterion(outputs, labels)
     
-    def train_epoch(self, model: nn.Module, train_loader: DataLoader, 
-                   optimizer: torch.optim.Optimizer, scaler: GradScaler,
-                   epoch: int, writer: Optional[SummaryWriter] = None) -> float:
+    def train_epoch(
+        self,
+        model: nn.Module,
+        train_loader: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        scaler: GradScaler,
+        epoch: int,
+        writer: Optional[SummaryWriter] = None,
+    ) -> Tuple[float, Dict[str, float]]:
         """Train for one epoch with DDP support and gradient clipping"""
         model.train()
         total_loss = 0.0
         num_batches = len(train_loader)
+        correct = {t: 0 for t in self.task_names}
+        total = {t: 0 for t in self.task_names}
         
         # Set epoch for distributed sampler
         if self.config.distributed and hasattr(train_loader.sampler, 'set_epoch'):
@@ -310,7 +325,7 @@ class DDPTrainer:
             with autocast(enabled=getattr(self.config, 'mixed_precision', True)):
                 outputs = model(images)
                 loss, task_losses = self.calculate_loss(outputs, labels)
-            
+
             if getattr(self.config, 'mixed_precision', True):
                 scaler.scale(loss).backward()
                 
@@ -333,8 +348,13 @@ class DDPTrainer:
                 )
                 
                 optimizer.step()
-            
+
             total_loss += loss.item()
+            # Accuracy accumulation
+            for task in self.task_names:
+                preds = torch.argmax(outputs[task], dim=1)
+                correct[task] += (preds == labels[task]).sum().item()
+                total[task] += labels[task].size(0)
             
             # Logging (only on rank 0)
             if (not self.config.distributed or self.config.rank == 0) and \
@@ -345,6 +365,9 @@ class DDPTrainer:
                     writer.add_scalar('GradNorm/Train_Batch', grad_norm.item(), step)
                     for task, task_loss in task_losses.items():
                         writer.add_scalar(f'Loss/Train_{task}_Batch', task_loss.item(), step)
+                    for task in self.task_names:
+                        batch_acc = (torch.argmax(outputs[task], dim=1) == labels[task]).float().mean()
+                        writer.add_scalar(f'Accuracy/Train_{task}_Batch', batch_acc.item(), step)
                 
                 print(f"Rank {self.config.rank if self.config.distributed else 0} - "
                       f"Epoch {epoch+1}/{self.config.epochs} - "
@@ -352,7 +375,15 @@ class DDPTrainer:
                       f"Loss: {loss.item():.4f} - "
                       f"GradNorm: {grad_norm.item():.4f}")
         
-        return total_loss / num_batches
+        train_acc = {t: (correct[t] / total[t]) if total[t] > 0 else 0.0 for t in self.task_names}
+
+        if self.config.distributed:
+            for t in self.task_names:
+                tensor = torch.tensor([correct[t], total[t]], device=self.device)
+                dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+                train_acc[t] = tensor[0].item() / tensor[1].item() if tensor[1].item() > 0 else 0.0
+
+        return total_loss / num_batches, train_acc
     
     def _reduce_dict(self, input_dict: Dict[str, float]) -> Dict[str, float]:
         """Reduce dictionary values across all processes"""
@@ -446,9 +477,29 @@ class DDPTrainer:
         max_patience = getattr(self.config, 'early_stopping_patience', float('inf'))
         
         # Training loop
+        if not self.config.distributed or self.config.rank == 0:
+            fig = plot_sample_images(train_loader.dataset, num_samples=8)
+            writer.add_figure("Samples/Train", fig, 0)
+            plt.close(fig)
+            fig = plot_sample_images(val_loader.dataset, num_samples=8)
+            writer.add_figure("Samples/Val", fig, 0)
+            plt.close(fig)
+
+        val_eval_loader = None
+        if not self.config.distributed or self.config.rank == 0:
+            val_eval_loader = DataLoader(
+                val_loader.dataset,
+                batch_size=self.config.batch_size,
+                shuffle=False,
+                num_workers=self.config.num_workers,
+                pin_memory=getattr(self.config, "pin_memory", True),
+            )
+
         for epoch in range(self.config.epochs):
             # Train
-            train_loss = self.train_epoch(model, train_loader, optimizer, scaler, epoch, writer)
+            train_loss, train_accs = self.train_epoch(
+                model, train_loader, optimizer, scaler, epoch, writer
+            )
             
             # Validate
             val_metrics = self.evaluator.evaluate(model, val_loader)
@@ -498,10 +549,28 @@ class DDPTrainer:
                     writer.add_scalar('Loss/Train', train_loss, epoch)
                     writer.add_scalar('Loss/Val', val_loss, epoch)
                     writer.add_scalar('LearningRate', optimizer.param_groups[0]['lr'], epoch)
-                    
+
+                    for task, acc in train_accs.items():
+                        writer.add_scalar(f'Accuracy/Train_{task}', acc, epoch)
+                    writer.add_scalar('Accuracy/Train_Average', np.mean(list(train_accs.values())), epoch)
+
                     for task, acc in val_accuracies.items():
                         writer.add_scalar(f'Accuracy/Val_{task}', acc, epoch)
                     writer.add_scalar('Accuracy/Val_Average', avg_val_acc, epoch)
+
+                    if val_eval_loader is not None:
+                        detailed = self.evaluator.evaluate(model, val_eval_loader, detailed=True)
+                        cm_fig = self.evaluator.plot_confusion_matrices(detailed)
+                        writer.add_figure('ConfusionMatrix/Val', cm_fig, epoch)
+                        plt.close(cm_fig)
+
+                        roc_fig = plot_roc_curves(detailed['labels'], detailed['probabilities'], self.task_names)
+                        writer.add_figure('ROC/Val', roc_fig, epoch)
+                        plt.close(roc_fig)
+
+                        pr_fig = plot_pr_curves(detailed['labels'], detailed['probabilities'], self.task_names)
+                        writer.add_figure('PR/Val', pr_fig, epoch)
+                        plt.close(pr_fig)
                 
                 print(f"Epoch {epoch+1} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}")
                 print(f"Val Accuracies: {val_accuracies}")

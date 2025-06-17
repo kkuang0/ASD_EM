@@ -1,6 +1,5 @@
 import argparse
 import pandas as pd
-import torch
 import torch.multiprocessing as mp
 from types import SimpleNamespace
 
