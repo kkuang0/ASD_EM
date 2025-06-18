@@ -71,7 +71,7 @@ class DDPTrainer:
         
         # Synchronize all processes
         if config.distributed:
-            dist.barrier()
+            dist.barrier(device_ids=[self.device.index])
     
     def _setup_distributed(self):
         """Initialize distributed training"""
@@ -588,7 +588,7 @@ class DDPTrainer:
             
             # Synchronize all processes
             if self.config.distributed:
-                dist.barrier()
+                dist.barrier(device_ids=[self.device.index])
         
         # Load best model and evaluate on test set (only on rank 0)
         test_accuracies = {}
