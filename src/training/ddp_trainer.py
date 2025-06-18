@@ -63,6 +63,16 @@ class DDPTrainer:
         
         # Allow passing pre-computed class weights through the config
         self.class_weights = getattr(config, "class_weights", None)
+        if self.class_weights is not None:
+            # Ensure all provided weights are tensors on the correct device
+            self.class_weights = {
+                task: (
+                    weight.to(self.device)
+                    if isinstance(weight, torch.Tensor)
+                    else torch.tensor(weight, dtype=torch.float32, device=self.device)
+                )
+                for task, weight in self.class_weights.items()
+            }
         
         # Initialize evaluator
         self.evaluator = ModelEvaluator(config)
