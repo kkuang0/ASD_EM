@@ -61,8 +61,7 @@ class DDPTrainer:
             os.makedirs(os.path.join(config.output_dir, 'models'), exist_ok=True)
             os.makedirs(os.path.join(config.output_dir, 'logs'), exist_ok=True)
         
-        # Allow passing pre-computed class weights through the config
-        self.class_weights = getattr(config, "class_weights", None)
+        self.class_weights = None
         
         # Initialize evaluator
         self.evaluator = ModelEvaluator(config)
@@ -179,24 +178,25 @@ class DDPTrainer:
             transform=get_em_transforms(image_size=self.image_size, is_training=False)
         )
         
-        # Calculate or load class weights only if not already provided
-        if self.class_weights is None:
-            if not self.config.distributed or self.config.rank == 0:
-                self.class_weights = self.calculate_class_weights(train_dataset)
-
-            # Broadcast class weights to all processes
-            if self.config.distributed:
-                if self.config.rank == 0:
-                    class_weights_data = {task: w.cpu() for task, w in self.class_weights.items()}
-                else:
-                    class_weights_data = None
-
-                class_weights_list = [class_weights_data]
-                dist.broadcast_object_list(class_weights_list, src=0)
-
-                if self.config.rank != 0:
-                    class_weights_data = class_weights_list[0]
-                    self.class_weights = {task: w.to(self.device) for task, w in class_weights_data.items()}
+        # Calculate class weights (only on rank 0, then broadcast)
+        if not self.config.distributed or self.config.rank == 0:
+            self.class_weights = self.calculate_class_weights(train_dataset)
+        
+        # Broadcast class weights to all processes
+        if self.config.distributed:
+            if self.config.rank == 0:
+                # Serialize class weights for broadcasting
+                class_weights_data = {task: weights.cpu() for task, weights in self.class_weights.items()}
+            else:
+                class_weights_data = None
+            
+            # Broadcast using pickle (simplified approach)
+            class_weights_list = [class_weights_data]
+            dist.broadcast_object_list(class_weights_list, src=0)
+            
+            if self.config.rank != 0:
+                class_weights_data = class_weights_list[0]
+                self.class_weights = {task: weights.to(self.device) for task, weights in class_weights_data.items()}
         
         # Create samplers for distributed training
         if self.config.distributed:

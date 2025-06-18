@@ -2,9 +2,6 @@ import argparse
 import torch
 import torch.multiprocessing as mp
 from types import SimpleNamespace
-import pandas as pd
-
-from src.data.utils import get_class_weights
 
 from src.training.ddp_trainer import DDPTrainer
 
@@ -32,7 +29,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def build_config(args, rank, world_size, class_weights):
+def build_config(args, rank, world_size):
     cfg = SimpleNamespace()
     # Dataset and model settings
     cfg.csv_path = args.csv
@@ -70,13 +67,12 @@ def build_config(args, rank, world_size, class_weights):
     cfg.mixed_precision = True
     cfg.log_every_n_batches = 50
     cfg.save_best_model = True
-    cfg.class_weights = class_weights
 
     return cfg
 
 
-def main_worker(rank, args, world_size, class_weights):
-    config = build_config(args, rank, world_size, class_weights)
+def main_worker(rank, args, world_size):
+    config = build_config(args, rank, world_size)
     trainer = DDPTrainer(config)
     trainer.train_cross_validation()
     trainer.cleanup()
@@ -87,10 +83,7 @@ def main():
     world_size = torch.cuda.device_count()
     if world_size == 0:
         world_size = 1  # fallback to CPU training
-    df = pd.read_csv(args.csv)
-    tasks = ['pathology', 'region', 'depth']
-    class_weights = get_class_weights(df, tasks)
-    mp.spawn(main_worker, nprocs=world_size, args=(args, world_size, class_weights))
+    mp.spawn(main_worker, nprocs=world_size, args=(args, world_size))
 
 
 if __name__ == '__main__':
