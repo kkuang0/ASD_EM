@@ -4,7 +4,7 @@ import torch.multiprocessing as mp
 from types import SimpleNamespace
 import pandas as pd
 
-from src.data.utils import get_class_weights
+from src.data.utils import get_class_weight_tensors
 
 from src.training.ddp_trainer import DDPTrainer
 
@@ -89,7 +89,7 @@ def main():
         world_size = 1  # fallback to CPU training
     df = pd.read_csv(args.csv)
     tasks = ['pathology', 'region', 'depth']
-    class_weights = get_class_weights(df, tasks)
+    class_weights = get_class_weight_tensors(df, tasks)
     mp.spawn(main_worker, nprocs=world_size, args=(args, world_size, class_weights))
 
 

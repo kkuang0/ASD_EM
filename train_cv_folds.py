@@ -4,7 +4,7 @@ import torch.multiprocessing as mp
 import torch
 from types import SimpleNamespace
 
-from src.data.utils import get_class_weights
+from src.data.utils import get_class_weight_tensors
 
 from src.training.ddp_trainer import DDPTrainer
 
@@ -101,7 +101,7 @@ def main():
         world_size = 1
     df = pd.read_csv(args.csv)
     tasks = ['pathology', 'region', 'depth']
-    class_weights = get_class_weights(df, tasks)
+    class_weights = get_class_weight_tensors(df, tasks)
     if 'fold' not in df.columns:
         raise ValueError("CSV must contain a 'fold' column")
     fold_ids = sorted(df['fold'].unique())

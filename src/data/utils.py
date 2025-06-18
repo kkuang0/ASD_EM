@@ -3,7 +3,16 @@ from sklearn.model_selection import StratifiedGroupKFold, GroupShuffleSplit
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 from typing import Tuple, List, Optional, Union
 import numpy as np
+import torch
 import os
+
+# Default mapping from string labels to class indices used throughout the
+# project. These mappings must stay in sync with EMAxonDataset.
+DEFAULT_TASK_MAPPING = {
+    'pathology': {'Control': 0, 'ASD': 1},
+    'region': {'A25': 0, 'A46': 1, 'OFC': 2},
+    'depth': {'DWM': 0, 'SWM': 1},
+}
 
 
 def create_splits_from_existing(train_val_csv_path: str, 
@@ -310,6 +319,24 @@ def get_class_weights(df: pd.DataFrame, tasks: List[str]) -> dict:
                 weights[task] = {cls: 1.0 for cls in classes}
     
     return weights
+
+
+def get_class_weight_tensors(df: pd.DataFrame, tasks: List[str]) -> dict:
+    """Return class weight tensors using the default task mapping."""
+    weight_dict = get_class_weights(df, tasks)
+    tensor_weights = {}
+    for task in tasks:
+        mapping = DEFAULT_TASK_MAPPING.get(task)
+        if not mapping or task not in weight_dict:
+            continue
+        num_classes = len(mapping)
+        tensor = torch.ones(num_classes, dtype=torch.float32)
+        for cls_name, idx in mapping.items():
+            if cls_name in weight_dict[task]:
+                tensor[idx] = float(weight_dict[task][cls_name])
+        tensor_weights[task] = tensor
+
+    return tensor_weights
 
 
 # Example usage functions
