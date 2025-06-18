@@ -4,6 +4,8 @@ import torch.multiprocessing as mp
 import torch
 from types import SimpleNamespace
 
+from src.data.utils import get_class_weights
+
 from src.training.ddp_trainer import DDPTrainer
 
 
@@ -25,7 +27,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def build_config(args, rank, n_splits, world_size):
+def build_config(args, rank, n_splits, world_size, class_weights):
     cfg = SimpleNamespace()
     cfg.csv_path = args.csv  # for logging/reference
     cfg.output_dir = args.output_dir
@@ -60,12 +62,13 @@ def build_config(args, rank, n_splits, world_size):
     cfg.mixed_precision = True
     cfg.log_every_n_batches = 50
     cfg.save_best_model = True
+    cfg.class_weights = class_weights
 
     return cfg
 
 
-def main_worker(rank, args, df, fold_ids, world_size):
-    config = build_config(args, rank, len(fold_ids), world_size)
+def main_worker(rank, args, df, fold_ids, world_size, class_weights):
+    config = build_config(args, rank, len(fold_ids), world_size, class_weights)
     trainer = DDPTrainer(config)
 
     # Prepare folds only on rank 0 then broadcast
@@ -97,10 +100,12 @@ def main():
     if world_size == 0:
         world_size = 1
     df = pd.read_csv(args.csv)
+    tasks = ['pathology', 'region', 'depth']
+    class_weights = get_class_weights(df, tasks)
     if 'fold' not in df.columns:
         raise ValueError("CSV must contain a 'fold' column")
     fold_ids = sorted(df['fold'].unique())
-    mp.spawn(main_worker, nprocs=world_size, args=(args, df, fold_ids, world_size))
+    mp.spawn(main_worker, nprocs=world_size, args=(args, df, fold_ids, world_size, class_weights))
 
 
 if __name__ == '__main__':
