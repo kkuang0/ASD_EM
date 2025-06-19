@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler
+from torch.amp import autocast
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 import numpy as np
@@ -175,7 +176,7 @@ class CNNTrainer:
             
             optimizer.zero_grad()
             
-            with autocast(enabled=self.config.mixed_precision):
+            with autocast("cuda", enabled=self.config.mixed_precision):
                 outputs = model(images)
                 loss, task_losses = self.calculate_loss(outputs, labels)
             
