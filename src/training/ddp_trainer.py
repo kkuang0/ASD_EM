@@ -5,7 +5,8 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler
+from torch.amp import autocast
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import (
     CosineAnnealingWarmRestarts,
@@ -336,7 +337,7 @@ class DDPTrainer:
             
             optimizer.zero_grad()
             
-            with autocast(enabled=getattr(self.config, 'mixed_precision', True)):
+            with autocast("cuda", enabled=getattr(self.config, 'mixed_precision', True)):
                 outputs = model(images)
                 loss, task_losses = self.calculate_loss(outputs, labels)
 
