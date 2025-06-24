@@ -21,8 +21,14 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from collections import Counter
 
-from ..data import EMAxonDataset, get_em_transforms, get_backbone_image_size, create_splits
-from ..models import MultiTaskCNN
+from ..data import (
+    EMAxonDataset,
+    PathDepthPairDataset,
+    get_em_transforms,
+    get_backbone_image_size,
+    create_splits,
+)
+from ..models import MultiTaskCNN, SingleTaskCNN
 from ..utils import (
     setup_logging,
     calculate_metrics,
@@ -40,6 +46,7 @@ class DDPTrainer:
     def __init__(self, config):
         self.config = config
         self.task_names = list(config.num_classes.keys())
+        self.dataset_cls = getattr(config, 'dataset_cls', EMAxonDataset)
         
         # Initialize distributed training
         if config.distributed:
@@ -122,12 +129,33 @@ class DDPTrainer:
     
     def create_model(self) -> nn.Module:
         """Create and initialize the model with DDP support"""
-        model = MultiTaskCNN(
-            backbone_name=self.config.backbone,
-            num_classes_dict=self.config.num_classes,
-            dropout_rate=self.config.dropout_rate,
-            feature_dim=self.config.feature_dim
-        ).to(self.device)
+        if getattr(self.config, 'model_type', 'multi') == 'single':
+            num_classes = list(self.config.num_classes.values())[0]
+            base_model = SingleTaskCNN(
+                backbone_name=self.config.backbone,
+                num_classes=num_classes,
+                dropout_rate=self.config.dropout_rate,
+            ).to(self.device)
+
+            task_name = self.task_names[0]
+
+            class SingleWrapper(nn.Module):
+                def __init__(self, model, tname):
+                    super().__init__()
+                    self.model = model
+                    self.tname = tname
+
+                def forward(self, x):
+                    return {self.tname: self.model(x)}
+
+            model = SingleWrapper(base_model, task_name)
+        else:
+            model = MultiTaskCNN(
+                backbone_name=self.config.backbone,
+                num_classes_dict=self.config.num_classes,
+                dropout_rate=self.config.dropout_rate,
+                feature_dim=self.config.feature_dim,
+            ).to(self.device)
         
         if self.config.distributed:
             # Convert BatchNorm to SyncBatchNorm for better DDP performance
@@ -177,16 +205,16 @@ class DDPTrainer:
         """Create data loaders with distributed sampling and updated transforms"""
         
         # Create datasets with updated transforms
-        train_dataset = EMAxonDataset(
-            train_df, 
+        train_dataset = self.dataset_cls(
+            train_df,
             transform=get_em_transforms(image_size=self.image_size, is_training=True)
         )
-        val_dataset = EMAxonDataset(
-            val_df, 
+        val_dataset = self.dataset_cls(
+            val_df,
             transform=get_em_transforms(image_size=self.image_size, is_training=False)
         )
-        test_dataset = EMAxonDataset(
-            test_df, 
+        test_dataset = self.dataset_cls(
+            test_df,
             transform=get_em_transforms(image_size=self.image_size, is_training=False)
         )
         
