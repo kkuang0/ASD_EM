@@ -15,7 +15,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Cross-validation for a single region using pathology only"
     )
-    parser.add_argument('--csv', required=True, help='Path to metadata CSV')
+    parser.add_argument('--train-val-csv', required=True,
+                        help='CSV with training and validation data')
+    parser.add_argument('--test-csv', required=True,
+                        help='CSV with held-out test data')
     parser.add_argument('--region', required=True, help='Region name to train on')
     parser.add_argument('--output-dir', default='runs', help='Base directory for models and logs')
     parser.add_argument('--epochs', type=int, default=10)
@@ -30,8 +33,6 @@ def parse_args():
     parser.add_argument('--backbone', type=str, default='resnet18')
     parser.add_argument('--n-splits', type=int, default=5,
                         help='Number of cross-validation folds')
-    parser.add_argument('--holdout-frac', type=float, default=0.2,
-                        help='Fraction of data reserved for testing')
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed for data splitting')
     parser.add_argument('--num-trials', type=int, default=1,
@@ -49,10 +50,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def build_config(args, rank, world_size, class_weights, csv_path, region_name,
+def build_config(args, rank, world_size, class_weights,
+                 train_val_path, test_path, region_name,
                  lr=None, dropout=None):
     cfg = SimpleNamespace()
-    cfg.csv_path = csv_path
+    cfg.train_val_csv_path = train_val_path
+    cfg.test_csv_path = test_path
     cfg.output_dir = os.path.join(args.output_dir, f"region_{region_name}")
     cfg.epochs = args.epochs
     cfg.batch_size = args.batch_size
@@ -61,7 +64,6 @@ def build_config(args, rank, world_size, class_weights, csv_path, region_name,
     cfg.scheduler = args.scheduler
     cfg.backbone = args.backbone
     cfg.n_splits = args.n_splits
-    cfg.holdout_frac = args.holdout_frac
     cfg.random_seed = args.seed
     cfg.dropout_rate = args.dropout if dropout is None else dropout
     cfg.feature_dim = 512
@@ -89,10 +91,11 @@ def build_config(args, rank, world_size, class_weights, csv_path, region_name,
     return cfg
 
 
-def main_worker(rank, args, csv_path, world_size, class_weights, region_name,
-                lr, dropout, result_queue):
-    config = build_config(args, rank, world_size, class_weights, csv_path,
-                          region_name, lr=lr, dropout=dropout)
+def main_worker(rank, args, train_val_path, test_path, world_size, class_weights,
+                region_name, lr, dropout, result_queue):
+    config = build_config(args, rank, world_size, class_weights,
+                          train_val_path, test_path, region_name,
+                          lr=lr, dropout=dropout)
     trainer = DDPTrainer(config)
     results = trainer.train_cross_validation()
     trainer.cleanup()
@@ -101,41 +104,49 @@ def main_worker(rank, args, csv_path, world_size, class_weights, region_name,
         result_queue.put(avg_score)
 
 
-def run_region(args, region_name, df_region, lr, dropout):
+def run_region(args, region_name, df_trainval_reg, df_test_reg, lr, dropout):
     world_size = torch.cuda.device_count()
     if world_size == 0:
         world_size = 1
 
     tasks = ['pathology']
-    class_weights = get_class_weight_tensors(df_region, tasks)
+    class_weights = get_class_weight_tensors(df_trainval_reg, tasks)
 
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
-        df_region.to_csv(tmp.name, index=False)
-        csv_path = tmp.name
+    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp_trainval, \
+         tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp_test:
+        df_trainval_reg.to_csv(tmp_trainval.name, index=False)
+        df_test_reg.to_csv(tmp_test.name, index=False)
+        train_path = tmp_trainval.name
+        test_path = tmp_test.name
 
     result_queue = mp.get_context('spawn').SimpleQueue()
     mp.spawn(
         main_worker,
         nprocs=world_size,
-        args=(args, csv_path, world_size, class_weights, region_name,
+        args=(args, train_path, test_path, world_size, class_weights, region_name,
               lr, dropout, result_queue)
     )
 
-    os.remove(csv_path)
+    os.remove(train_path)
+    os.remove(test_path)
     return result_queue.get()
 
 
 def main():
     args = parse_args()
-    df = pd.read_csv(args.csv)
+    df_trainval = pd.read_csv(args.train_val_csv)
+    df_test = pd.read_csv(args.test_csv)
 
-    if 'region' not in df.columns:
-        raise ValueError("CSV must contain a 'region' column")
+    for df in (df_trainval, df_test):
+        if 'region' not in df.columns:
+            raise ValueError("CSVs must contain a 'region' column")
 
-    if args.region not in df['region'].unique():
-        raise ValueError(f"Region '{args.region}' not found in CSV")
+    available_regions = set(df_trainval['region'].unique()) | set(df_test['region'].unique())
+    if args.region not in available_regions:
+        raise ValueError(f"Region '{args.region}' not found in provided CSVs")
 
-    df_region = df[df['region'] == args.region].reset_index(drop=True)
+    df_trainval_reg = df_trainval[df_trainval['region'] == args.region].reset_index(drop=True)
+    df_test_reg = df_test[df_test['region'] == args.region].reset_index(drop=True)
 
     def sample_params():
         lr = 10 ** np.random.uniform(np.log10(args.lr_min), np.log10(args.lr_max))
@@ -151,7 +162,8 @@ def main():
         else:
             lr, dropout = args.lr, args.dropout
         print(f"\n===== Trial {trial + 1}/{args.num_trials}: lr={lr:.2e}, dropout={dropout:.2f} =====")
-        score = run_region(args, args.region, df_region, lr, dropout)
+        score = run_region(args, args.region, df_trainval_reg, df_test_reg, lr,
+                           dropout)
         print(f"Trial {trial + 1} mean accuracy: {score:.4f}")
         if score > best_score:
             best_score = score
