@@ -113,7 +113,7 @@ def run_region(args, region_name, df_region, lr, dropout):
         df_region.to_csv(tmp.name, index=False)
         csv_path = tmp.name
 
-    result_queue = mp.SimpleQueue()
+    result_queue = mp.get_context('spawn').SimpleQueue()
     mp.spawn(
         main_worker,
         nprocs=world_size,
@@ -161,4 +161,5 @@ def main():
 
 
 if __name__ == '__main__':
+    torch.multiprocessing.set_start_method('spawn', force=True)
     main()
