@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import tempfile
 import os
 import numpy as np
+from sklearn.model_selection import GroupShuffleSplit
 
-from src.data.utils import get_class_weight_tensors, multilabel_patient_kfold
+from src.data.utils import get_class_weight_tensors
 from src.training.ddp_trainer import DDPTrainer
 
 
@@ -56,6 +57,12 @@ def parse_args():
         help="Number of cross-validation folds",
     )
     parser.add_argument(
+        "--val-frac",
+        type=float,
+        default=0.2,
+        help="Validation fraction when no 'fold' column is available",
+    )
+    parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for data splitting"
     )
     parser.add_argument(
@@ -95,6 +102,15 @@ def parse_args():
         help="Port for distributed training init",
     )
     return parser.parse_args()
+
+
+def group_train_val_split(df, val_frac=0.2, seed=42):
+    """Create a train/val split grouped by patient_id."""
+    gss = GroupShuffleSplit(n_splits=1, test_size=val_frac, random_state=seed)
+    train_idx, val_idx = next(gss.split(df, groups=df["patient_id"]))
+    train_df = df.iloc[train_idx].reset_index(drop=True)
+    val_df = df.iloc[val_idx].reset_index(drop=True)
+    return train_df, val_df
 
 
 def build_config(
@@ -303,12 +319,19 @@ def main():
         drop=True
     )
 
-    # Precompute CV splits so the first fold can be reused for random search
-    df_with_folds = multilabel_patient_kfold(
-        df_trainval_reg, n_splits=args.n_splits, seed=args.seed
-    )
-    train_df_first = df_with_folds[df_with_folds["fold"] != 0].copy()
-    val_df_first = df_with_folds[df_with_folds["fold"] == 0].copy()
+    # Determine training/validation split strategy
+    if "fold" in df_trainval_reg.columns:
+        print("\u2713 Using pre-computed folds from 'fold' column")
+        df_with_folds = df_trainval_reg.copy()
+        train_df_first = df_with_folds[df_with_folds["fold"] != 0].copy()
+        val_df_first = df_with_folds[df_with_folds["fold"] == 0].copy()
+        use_cv = True
+    else:
+        print("No 'fold' column found \u2013 using an 80/20 GroupShuffleSplit")
+        train_df_first, val_df_first = group_train_val_split(
+            df_trainval_reg, val_frac=args.val_frac, seed=args.seed
+        )
+        use_cv = False
 
     def sample_params():
         lr = 10 ** np.random.uniform(
@@ -346,16 +369,32 @@ def main():
 
     print(f"\nBest params: {best_params} -- fold-1 accuracy {best_score:.4f}")
 
-    # Run full cross-validation with the best hyperparameters
-    final_score = run_region(
-        args,
-        args.region,
-        df_trainval_reg,
-        df_test_reg,
-        best_params["lr"],
-        best_params["dropout"],
-    )
-    print(f"\nCross-validation accuracy with best params: {final_score:.4f}")
+    if use_cv:
+        # Run full cross-validation with the best hyperparameters
+        final_score = run_region(
+            args,
+            args.region,
+            df_trainval_reg,
+            df_test_reg,
+            best_params["lr"],
+            best_params["dropout"],
+        )
+        print(
+            f"\nCross-validation accuracy with best params: {final_score:.4f}"
+        )
+    else:
+        # Final training on the same holdout split
+        final_score = run_region_single_fold(
+            args,
+            args.region,
+            train_df_first,
+            val_df_first,
+            df_test_reg,
+            df_trainval_reg,
+            best_params["lr"],
+            best_params["dropout"],
+        )
+        print(f"\nHoldout accuracy with best params: {final_score:.4f}")
 
 
 if __name__ == "__main__":
