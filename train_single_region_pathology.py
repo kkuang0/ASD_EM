@@ -5,6 +5,7 @@ import torch.multiprocessing as mp
 from types import SimpleNamespace
 import tempfile
 import os
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from sklearn.model_selection import GroupShuffleSplit
 
@@ -299,6 +300,9 @@ def run_region_single_fold(
 
 def main():
     args = parse_args()
+    log_dir = os.path.join(args.output_dir, f"region_{args.region}", "search_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir)
     df_trainval = pd.read_csv(args.train_val_csv)
     df_test = pd.read_csv(args.test_csv)
 
@@ -363,11 +367,15 @@ def main():
             dropout,
         )
         print(f"Trial {trial + 1} fold-1 accuracy: {score:.4f}")
+        writer.add_scalar("Trial/Accuracy", score, trial)
+        writer.add_scalar("Trial/LR", lr, trial)
+        writer.add_scalar("Trial/Dropout", dropout, trial)
         if score > best_score:
             best_score = score
             best_params = {"lr": lr, "dropout": dropout}
 
     print(f"\nBest params: {best_params} -- fold-1 accuracy {best_score:.4f}")
+    writer.add_text("BestParams", str(best_params))
 
     if use_cv:
         # Run full cross-validation with the best hyperparameters
@@ -382,6 +390,7 @@ def main():
         print(
             f"\nCross-validation accuracy with best params: {final_score:.4f}"
         )
+        writer.add_scalar("Final/CV_Accuracy", final_score)
     else:
         # Final training on the same holdout split
         final_score = run_region_single_fold(
@@ -395,6 +404,9 @@ def main():
             best_params["dropout"],
         )
         print(f"\nHoldout accuracy with best params: {final_score:.4f}")
+        writer.add_scalar("Final/Holdout_Accuracy", final_score)
+
+    writer.close()
 
 
 if __name__ == "__main__":
