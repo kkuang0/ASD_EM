@@ -22,6 +22,8 @@ def generate_n2v_mask(shape: Tuple[int, int], mask_ratio: float = 0.03, radius: 
 
 
 def apply_n2v_mask(img: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Apply Noise2Void masking to an image batch."""
+    mask = mask.unsqueeze(1)  # add channel dimension for indexing
     noisy_img = img.clone()
     noise = torch.randn_like(noisy_img)
     noisy_img[mask] = noise[mask]
@@ -29,6 +31,8 @@ def apply_n2v_mask(img: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor,
 
 
 def n2v_loss(pred: torch.Tensor, target_pixels: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """MSE loss computed on masked pixel locations."""
+    mask = mask.unsqueeze(1)
     return F.mse_loss(pred[mask], target_pixels)
 
 
