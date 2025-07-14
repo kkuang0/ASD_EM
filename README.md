@@ -10,10 +10,11 @@ denoising of axon cross‑section images.
 
 ```
 python -m src.denoising.train_n2v \
-    --images /path/to/*.tif \
+    --csv train_paths.csv \
     --output-dir n2v_runs \
     --patch-size 64
 ```
+You can also provide image paths directly using the `--images` argument.
 Example denoised patches are saved to the output directory after each epoch for visual inspection.
 
 ### Inference
