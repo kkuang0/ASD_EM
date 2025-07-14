@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 from typing import List
 
@@ -14,7 +15,8 @@ from .utils import generate_n2v_mask, apply_n2v_mask, n2v_loss, save_comparison
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Noise2Void training")
-    p.add_argument('--images', nargs='+', required=True, help='Image file paths')
+    p.add_argument('--images', nargs='+', help='Image file paths')
+    p.add_argument('--image-csv', help='CSV file containing a column named "filepath" with image paths')
     p.add_argument('--output-dir', default='n2v_runs', help='Directory to save checkpoints')
     p.add_argument('--patch-size', type=int, default=64)
     p.add_argument('--overlap', type=int, default=16)
@@ -23,12 +25,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--lr', type=float, default=1e-4)
     p.add_argument('--patience', type=int, default=10)
     p.add_argument('--mask-ratio', type=float, default=0.03)
-    return p.parse_args()
+    args = p.parse_args()
+    if not args.images and not args.image_csv:
+        p.error('Specify --images or --image-csv')
+    return args
 
 
 def train(args: argparse.Namespace):
     os.makedirs(args.output_dir, exist_ok=True)
-    dataset = PatchDataset(args.images, patch_size=args.patch_size, overlap=args.overlap)
+    if args.image_csv:
+        with open(args.image_csv, newline='') as f:
+            reader = csv.DictReader(f)
+            image_paths = [row['filepath'] for row in reader]
+    else:
+        image_paths = args.images
+    dataset = PatchDataset(image_paths, patch_size=args.patch_size, overlap=args.overlap)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

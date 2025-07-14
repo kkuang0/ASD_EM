@@ -10,10 +10,13 @@ denoising of axon cross‑section images.
 
 ```
 python -m src.denoising.train_n2v \
-    --images /path/to/*.tif \
+    --image-csv images.csv \
     --output-dir n2v_runs \
     --patch-size 64
 ```
+The CSV should contain a column called `filepath` listing all image paths. You
+can also provide image paths directly with `--images`, but using a CSV avoids
+shell limits when you have many files.
 Example denoised patches are saved to the output directory after each epoch for visual inspection.
 
 ### Inference
