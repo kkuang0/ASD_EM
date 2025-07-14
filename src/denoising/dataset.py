@@ -14,7 +14,9 @@ def load_image(path: str) -> Image.Image:
 
 def normalize(img: torch.Tensor) -> torch.Tensor:
     """Normalize an image tensor to 0-1 range."""
-    img = img.float() / 255.0
+    img = img.float()
+    if img.max() > 1:
+        img = img / 255.0
     return img
 
 
