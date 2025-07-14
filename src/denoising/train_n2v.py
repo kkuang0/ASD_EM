@@ -10,28 +10,34 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from .dataset import PatchDataset
 from .unet import UNet
-from .utils import generate_n2v_mask, apply_n2v_mask, n2v_loss, save_comparison
+from .utils import (
+    generate_n2v_mask,
+    apply_n2v_mask,
+    n2v_loss,
+    save_comparison,
+    save_comparison_grid,
+)
 
 
 def get_image_files(directory_path: str) -> list[str]:
     """Get all image files from a directory."""
-    image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif'}
+    image_extensions = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".gif"}
     directory = Path(directory_path)
-    
+
     if not directory.exists():
         raise ValueError(f"Directory does not exist: {directory_path}")
-    
+
     if not directory.is_dir():
         raise ValueError(f"Path is not a directory: {directory_path}")
-    
+
     image_files = []
-    for file_path in directory.rglob('*'):
+    for file_path in directory.rglob("*"):
         if file_path.is_file() and file_path.suffix.lower() in image_extensions:
             image_files.append(str(file_path))
-    
+
     if not image_files:
         raise ValueError(f"No image files found in directory: {directory_path}")
-    
+
     return image_files
 
 
@@ -72,12 +78,8 @@ def parse_args() -> argparse.Namespace:
     args = p.parse_args()
 
     # Count how many input methods are specified
-    input_methods = sum([
-        bool(args.images),
-        bool(args.csv),
-        bool(args.directory)
-    ])
-    
+    input_methods = sum([bool(args.images), bool(args.csv), bool(args.directory)])
+
     if input_methods == 0:
         p.error("One of --images, --csv, or --directory must be specified")
     elif input_methods > 1:
@@ -100,7 +102,7 @@ def parse_args() -> argparse.Namespace:
             .astype(str)
             .tolist()
         )
-    
+
     # Load image paths from directory if provided
     elif args.directory:
         all_images = get_image_files(args.directory)
@@ -129,10 +131,11 @@ def train(args: argparse.Namespace):
     best_loss = float("inf")
     no_improve = 0
 
-    # select example patch for visualization
+    # select example patches for visualization
     aug_flag = dataset.augment
     dataset.augment = False
-    example_patch = dataset[0].unsqueeze(0).to(device)
+    sample_indices = random.sample(range(len(dataset)), min(20, len(dataset)))
+    example_patches = torch.stack([dataset[i] for i in sample_indices]).to(device)
     dataset.augment = aug_flag
     for epoch in range(args.epochs):
         model.train()
@@ -159,10 +162,10 @@ def train(args: argparse.Namespace):
         # log example denoising result
         model.eval()
         with torch.no_grad():
-            example_pred = model(example_patch)
-        save_comparison(
-            example_patch.squeeze(0),
-            example_pred.squeeze(0).cpu(),
+            example_pred = model(example_patches)
+        save_comparison_grid(
+            example_patches.cpu(),
+            example_pred.cpu(),
             os.path.join(args.output_dir, f"epoch_{epoch+1}.png"),
         )
         model.train()
@@ -184,4 +187,3 @@ def train(args: argparse.Namespace):
 if __name__ == "__main__":
     args = parse_args()
     train(args)
-    
