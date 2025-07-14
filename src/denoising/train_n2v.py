@@ -46,7 +46,13 @@ def parse_args() -> argparse.Namespace:
         df = pd.read_csv(args.csv)
         if "filepath" not in df.columns:
             raise ValueError("CSV must contain a 'filepath' column")
-        args.images = df["filepath"].astype(str).tolist()
+        # Limit training to 20 samples when a CSV is provided
+        args.images = (
+            df["filepath"]
+            .sample(n=min(20, len(df)), random_state=42)
+            .astype(str)
+            .tolist()
+        )
 
     if not args.images:
         p.error("Either --images or --csv must be specified")
