@@ -51,7 +51,9 @@ class CLAHEAndNLM:
 
 
 def get_em_transforms(
-    image_size: int = 224, is_training: bool = True
+    image_size: int = 224,
+    is_training: bool = True,
+    apply_clahe_nlm: bool = True,
 ) -> transforms.Compose:
     """
     Transforms optimized for 8-bit grayscale electron microscopy images of axon cross-sections.
@@ -66,68 +68,74 @@ def get_em_transforms(
     Args:
         image_size: Target size for model input (depends on backbone)
         is_training: Whether to apply training augmentations
+        apply_clahe_nlm: If ``True``, apply CLAHE and NLM preprocessing
     """
 
-    preprocess = CLAHEAndNLM(clip_limit=0.02, h=0.15)
+    preprocess = CLAHEAndNLM(clip_limit=0.02, h=0.15) if apply_clahe_nlm else None
 
     if not is_training:
-        # Validation/test transforms - preserve image quality
-        return transforms.Compose(
+        transforms_list = []
+        if preprocess is not None:
+            transforms_list.append(preprocess)
+        transforms_list.extend(
             [
-                preprocess,
                 transforms.Resize(
                     image_size, interpolation=transforms.InterpolationMode.BILINEAR
                 ),
                 transforms.CenterCrop(image_size),
-                transforms.Grayscale(
-                    num_output_channels=3
-                ),  # Convert to 3-channel for pretrained models
+                transforms.Grayscale(num_output_channels=3),
                 transforms.ToTensor(),
                 GrayscaleNormalize(),
             ]
         )
+        return transforms.Compose(transforms_list)
 
     # Training transforms optimized for EM axon cross-sections
-    training_transforms = [
-        preprocess,
-        # Resize with slight upsampling to allow for random cropping
-        transforms.Resize(
-            int(image_size * 1.05), interpolation=transforms.InterpolationMode.BILINEAR
-        ),
-        # Random crop to introduce spatial variations
-        transforms.RandomCrop(image_size),
-        # Rotation augmentation - axons are roughly circular, so rotation should be invariant
-        # Limited to 180° since EM images don't have a natural "up" orientation
-        transforms.RandomRotation(
-            180, interpolation=transforms.InterpolationMode.BILINEAR
-        ),
-        # Horizontal flip - EM cross-sections are symmetric
-        transforms.RandomHorizontalFlip(p=0.5),
-        # Vertical flip - also symmetric for axon cross-sections
-        transforms.RandomVerticalFlip(p=0.5),
-        # Brightness/contrast adjustments for varying EM imaging conditions
-        # Conservative values to preserve fine structural details
-        transforms.RandomApply(
-            [
-                transforms.ColorJitter(
-                    brightness=0.1,  # Slight brightness variation for different imaging conditions
-                    contrast=0.15,  # Moderate contrast changes to simulate different EM settings
-                    saturation=0,  # No saturation change for grayscale
-                    hue=0,  # No hue change for grayscale
-                )
-            ],
-            p=0.4,
-        ),
-        # Gaussian noise to simulate imaging noise (applied after tensor conversion)
-        # This will be handled by a custom transform below
-        # Convert grayscale to 3-channel for compatibility with pretrained models
-        transforms.Grayscale(num_output_channels=3),
-        transforms.ToTensor(),
-        # Custom normalization for grayscale images
-        GrayscaleNormalize(),
-        # Add slight Gaussian noise to simulate EM imaging conditions
-        RandomGaussianNoise(std=0.01, p=0.3),
-    ]
+    training_transforms = []
+    if preprocess is not None:
+        training_transforms.append(preprocess)
+    training_transforms.extend(
+        [
+            # Resize with slight upsampling to allow for random cropping
+            transforms.Resize(
+                int(image_size * 1.05),
+                interpolation=transforms.InterpolationMode.BILINEAR,
+            ),
+            # Random crop to introduce spatial variations
+            transforms.RandomCrop(image_size),
+            # Rotation augmentation - axons are roughly circular, so rotation should be invariant
+            # Limited to 180° since EM images don't have a natural "up" orientation
+            transforms.RandomRotation(
+                180, interpolation=transforms.InterpolationMode.BILINEAR
+            ),
+            # Horizontal flip - EM cross-sections are symmetric
+            transforms.RandomHorizontalFlip(p=0.5),
+            # Vertical flip - also symmetric for axon cross-sections
+            transforms.RandomVerticalFlip(p=0.5),
+            # Brightness/contrast adjustments for varying EM imaging conditions
+            # Conservative values to preserve fine structural details
+            transforms.RandomApply(
+                [
+                    transforms.ColorJitter(
+                        brightness=0.1,  # Slight brightness variation for different imaging conditions
+                        contrast=0.15,  # Moderate contrast changes to simulate different EM settings
+                        saturation=0,  # No saturation change for grayscale
+                        hue=0,  # No hue change for grayscale
+                    )
+                ],
+                p=0.4,
+            ),
+            # Gaussian noise to simulate imaging noise (applied after tensor conversion)
+            # This will be handled by a custom transform below
+            # Convert grayscale to 3-channel for compatibility with pretrained models
+            transforms.Grayscale(num_output_channels=3),
+            transforms.ToTensor(),
+            # Custom normalization for grayscale images
+            GrayscaleNormalize(),
+            # Add slight Gaussian noise to simulate EM imaging conditions
+            RandomGaussianNoise(std=0.01, p=0.3),
+        ]
+    )
 
     return transforms.Compose(training_transforms)
 
