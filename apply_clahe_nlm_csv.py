@@ -27,26 +27,44 @@ def process_csv(csv_path: str, output_dir: str, clip_limit: float, h: float):
 
     os.makedirs(output_dir, exist_ok=True)
 
+    base_dir = os.path.commonpath(df["filepath"].tolist())
+
     for _, row in tqdm(df.iterrows(), total=len(df)):
         inp_path = row["filepath"]
         img = Image.open(inp_path)
         filtered = apply_filters(img, clip_limit=clip_limit, h=h)
-        out_path = os.path.join(output_dir, os.path.basename(inp_path))
+        rel_path = os.path.relpath(inp_path, base_dir)
+        out_path = os.path.join(output_dir, rel_path)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
         filtered.save(out_path)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Apply CLAHE and NLM to images from a CSV"
+        description=(
+            "Apply CLAHE and NLM to images from a CSV while preserving the "
+            "directory structure"
+        )
     )
-    parser.add_argument("--csv", required=True, help="CSV with a 'filepath' column")
     parser.add_argument(
-        "--output-dir", required=True, help="Directory to save processed images"
+        "--csv",
+        required=True,
+        help="CSV with a 'filepath' column",
+    )
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory to save processed images",
     )
     parser.add_argument(
         "--clip-limit", type=float, default=0.2, help="CLAHE clip limit"
     )
-    parser.add_argument("--h", type=float, default=0.15, help="NLM filter strength")
+    parser.add_argument(
+        "--h",
+        type=float,
+        default=0.15,
+        help="NLM filter strength",
+    )
     return parser.parse_args()
 
 
