@@ -19,7 +19,19 @@ def parse_args():
             "validation for pathology classification"
         )
     )
-    parser.add_argument("--csv", required=True, help="Metadata CSV file")
+    parser.add_argument(
+        "--csv",
+        required=True,
+        help=(
+            "Metadata CSV file. When --test-csv is provided this should "
+            "point to the train/validation CSV"
+        ),
+    )
+    parser.add_argument(
+        "--test-csv",
+        default=None,
+        help="Optional CSV containing a held-out test set",
+    )
     parser.add_argument(
         "--output-dir",
         default="runs",
@@ -78,10 +90,23 @@ def parse_args():
 
 
 def build_config(
-    args, rank, world_size, class_weights, csv_path=None, lr=None, dropout=None
+    args,
+    rank,
+    world_size,
+    class_weights,
+    csv_path=None,
+    test_csv_path=None,
+    lr=None,
+    dropout=None,
 ):
     cfg = SimpleNamespace()
-    cfg.csv_path = csv_path
+    # When a separate test CSV is provided, use train_val/test paths.
+    if test_csv_path is not None:
+        cfg.train_val_csv_path = csv_path
+        cfg.test_csv_path = test_csv_path
+        cfg.csv_path = None
+    else:
+        cfg.csv_path = csv_path
     cfg.output_dir = args.output_dir
     cfg.epochs = args.epochs
     cfg.batch_size = args.batch_size
@@ -178,6 +203,7 @@ def main_worker_cv(
     rank,
     args,
     csv_path,
+    test_csv,
     world_size,
     class_weights,
     lr,
@@ -190,6 +216,7 @@ def main_worker_cv(
         world_size,
         class_weights,
         csv_path,
+        test_csv,
         lr,
         dropout,
     )
@@ -201,7 +228,7 @@ def main_worker_cv(
         result_queue.put(scores)
 
 
-def run_full_cv(args, csv_path, df_trainval, lr, dropout):
+def run_full_cv(args, csv_path, df_trainval, lr, dropout, test_csv=None):
     world_size = torch.cuda.device_count()
     if world_size == 0:
         world_size = 1
@@ -216,6 +243,7 @@ def run_full_cv(args, csv_path, df_trainval, lr, dropout):
         args=(
             args,
             csv_path,
+            test_csv,
             world_size,
             class_weights,
             lr,
@@ -234,12 +262,20 @@ def main():
     writer = SummaryWriter(log_dir)
 
     # Create patient-grouped splits
-    folds, test_df = create_splits(
-        csv_path=args.csv,
-        n_splits=args.n_splits,
-        holdout_frac=args.holdout_frac,
-        seed=args.seed,
-    )
+    if args.test_csv:
+        folds, test_df = create_splits(
+            train_val_csv_path=args.csv,
+            test_csv_path=args.test_csv,
+            n_splits=args.n_splits,
+            seed=args.seed,
+        )
+    else:
+        folds, test_df = create_splits(
+            csv_path=args.csv,
+            n_splits=args.n_splits,
+            holdout_frac=args.holdout_frac,
+            seed=args.seed,
+        )
 
     train_df_first, val_df_first = folds[0]
     df_trainval = pd.concat([df for pair in folds for df in pair]).reset_index(
@@ -292,6 +328,7 @@ def main():
         df_trainval,
         best_params["lr"],
         best_params["dropout"],
+        test_csv=args.test_csv,
     )
     for idx, fs in enumerate(fold_scores):
         writer.add_scalar("Final/Fold_Accuracy", fs, idx)
