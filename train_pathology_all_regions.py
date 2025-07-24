@@ -86,6 +86,13 @@ def parse_args():
     parser.add_argument(
         "--port", type=int, default=12355, help="Port for distributed init"
     )
+    parser.add_argument(
+        "--no-mixed-precision",
+        dest="mixed_precision",
+        action="store_false",
+        help="Disable PyTorch AMP mixed precision",
+    )
+    parser.set_defaults(mixed_precision=True)
     return parser.parse_args()
 
 
@@ -135,7 +142,7 @@ def build_config(
         cfg.device = "cpu"
     cfg.dist_url = f"tcp://127.0.0.1:{args.port}"
 
-    cfg.mixed_precision = True
+    cfg.mixed_precision = args.mixed_precision
     cfg.log_every_n_batches = 50
     cfg.save_best_model = True
     cfg.class_weights = class_weights
