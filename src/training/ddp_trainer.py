@@ -400,24 +400,41 @@ class DDPTrainer:
                 outputs = model(images)
                 loss, task_losses = self.calculate_loss(outputs, labels)
 
+            # Check for NaN loss and skip batch if found
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"Warning: NaN or Inf loss detected at batch {batch_idx}, skipping batch")
+                continue
+
             if getattr(self.config, "mixed_precision", True):
                 scaler.scale(loss).backward()
 
-                # Gradient clipping
+                # Gradient clipping with NaN detection
                 scaler.unscale_(optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), getattr(self.config, "max_grad_norm", 1.0)
                 )
+                
+                # Check for NaN gradients
+                if torch.isnan(grad_norm) or torch.isinf(grad_norm):
+                    print(f"Warning: NaN or Inf gradient norm detected at batch {batch_idx}, skipping update")
+                    optimizer.zero_grad()
+                    continue
 
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss.backward()
 
-                # Gradient clipping
+                # Gradient clipping with NaN detection
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), getattr(self.config, "max_grad_norm", 1.0)
                 )
+                
+                # Check for NaN gradients
+                if torch.isnan(grad_norm) or torch.isinf(grad_norm):
+                    print(f"Warning: NaN or Inf gradient norm detected at batch {batch_idx}, skipping update")
+                    optimizer.zero_grad()
+                    continue
 
                 optimizer.step()
 

@@ -101,35 +101,58 @@ class MultiTaskLoss(nn.Module):
     def _compute_cross_entropy_loss(self, outputs: torch.Tensor, 
                                    labels: torch.Tensor,
                                    class_weights: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Compute standard cross-entropy loss."""
-        return F.cross_entropy(outputs, labels, weight=class_weights, reduction='mean')
+        """Compute standard cross-entropy loss with numerical stability."""
+        # Add numerical stability by clamping extreme values
+        outputs = torch.clamp(outputs, min=-100, max=100)
+        loss = F.cross_entropy(outputs, labels, weight=class_weights, reduction='mean')
+        
+        # Check for NaN/Inf and return a safe fallback
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("Warning: NaN/Inf detected in cross-entropy loss, using fallback")
+            return torch.tensor(1.0, device=outputs.device, requires_grad=True)
+        
+        return loss
     
     def _compute_focal_loss(self, outputs: torch.Tensor, 
                            labels: torch.Tensor,
                            class_weights: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Compute focal loss for handling class imbalance."""
+        """Compute focal loss for handling class imbalance with numerical stability."""
         # Get device for tensor operations
         device = outputs.device
+        
+        # Add numerical stability by clamping extreme values
+        outputs = torch.clamp(outputs, min=-100, max=100)
         
         # Compute cross entropy with no reduction
         ce_loss = F.cross_entropy(outputs, labels, weight=class_weights, reduction='none')
         
-        # Compute p_t
+        # Compute p_t with clamping to prevent numerical issues
         pt = torch.exp(-ce_loss)
+        pt = torch.clamp(pt, min=1e-8, max=1.0)
         
         # Compute focal loss
         alpha = torch.tensor(self.focal_alpha, device=device, dtype=outputs.dtype)
         gamma = torch.tensor(self.focal_gamma, device=device, dtype=outputs.dtype)
         
-        focal_loss = alpha * (1 - pt) ** gamma * ce_loss
-        return focal_loss.mean()
+        focal_loss = alpha * torch.pow(1 - pt, gamma) * ce_loss
+        loss = focal_loss.mean()
+        
+        # Check for NaN/Inf and return a safe fallback
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("Warning: NaN/Inf detected in focal loss, using fallback")
+            return torch.tensor(1.0, device=outputs.device, requires_grad=True)
+        
+        return loss
     
     def _compute_smoothed_cross_entropy_loss(self, outputs: torch.Tensor, 
                                             labels: torch.Tensor,
                                             class_weights: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Compute label-smoothed cross-entropy loss (more efficient implementation)."""
+        """Compute label-smoothed cross-entropy loss with numerical stability."""
         device = outputs.device
         num_classes = outputs.size(1)
+        
+        # Add numerical stability by clamping extreme values
+        outputs = torch.clamp(outputs, min=-100, max=100)
         
         # Compute log probabilities
         log_probs = F.log_softmax(outputs, dim=1)
@@ -149,7 +172,14 @@ class MultiTaskLoss(nn.Module):
             weights = class_weights[labels]
             task_loss = task_loss * weights
         
-        return task_loss.mean()
+        loss = task_loss.mean()
+        
+        # Check for NaN/Inf and return a safe fallback
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("Warning: NaN/Inf detected in smoothed cross-entropy loss, using fallback")
+            return torch.tensor(1.0, device=outputs.device, requires_grad=True)
+        
+        return loss
     
     def _compute_task_loss(self, task: str, outputs: torch.Tensor, 
                           labels: torch.Tensor) -> torch.Tensor:
