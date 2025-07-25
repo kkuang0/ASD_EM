@@ -146,6 +146,8 @@ def build_config(
     cfg.log_every_n_batches = 50
     cfg.save_best_model = True
     cfg.class_weights = class_weights
+    cfg.max_grad_norm = 0.5  # Reduce gradient clipping threshold
+    cfg.weight_decay = 0.01  # Add weight decay for stability
 
     return cfg
 

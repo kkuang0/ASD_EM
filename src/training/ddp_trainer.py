@@ -398,6 +398,11 @@ class DDPTrainer:
                 "cuda", enabled=getattr(self.config, "mixed_precision", True)
             ):
                 outputs = model(images)
+                
+                # Clamp model outputs to prevent extreme values
+                for task_name in outputs.keys():
+                    outputs[task_name] = torch.clamp(outputs[task_name], min=-10, max=10)
+                
                 loss, task_losses = self.calculate_loss(outputs, labels)
 
             # Check for NaN loss and skip batch if found

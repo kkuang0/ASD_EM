@@ -41,12 +41,16 @@ class MultiTaskCNN(nn.Module):
         # Task-specific classification heads
         self.task_heads = nn.ModuleDict()
         for task_name, num_classes in num_classes_dict.items():
-            self.task_heads[task_name] = nn.Sequential(
+            head = nn.Sequential(
                 nn.Linear(feature_dim, feature_dim // 2),
                 nn.ReLU(),
                 nn.Dropout(dropout_rate),
                 nn.Linear(feature_dim // 2, num_classes)
             )
+            # Initialize the classification head properly
+            nn.init.xavier_uniform_(head[3].weight, gain=0.1)  # Small gain for stability
+            nn.init.constant_(head[3].bias, 0.0)
+            self.task_heads[task_name] = head
     
     def _create_torchvision_backbone(self, backbone_name: str):
         """Create backbone using torchvision models"""

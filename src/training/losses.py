@@ -109,7 +109,7 @@ class MultiTaskLoss(nn.Module):
         # Check for NaN/Inf and return a safe fallback
         if torch.isnan(loss) or torch.isinf(loss):
             print("Warning: NaN/Inf detected in cross-entropy loss, using fallback")
-            return torch.tensor(1.0, device=outputs.device, requires_grad=True)
+            return torch.tensor(0.693, device=outputs.device, requires_grad=True)  # ln(2) for binary classification
         
         return loss
     
@@ -140,7 +140,7 @@ class MultiTaskLoss(nn.Module):
         # Check for NaN/Inf and return a safe fallback
         if torch.isnan(loss) or torch.isinf(loss):
             print("Warning: NaN/Inf detected in focal loss, using fallback")
-            return torch.tensor(1.0, device=outputs.device, requires_grad=True)
+            return torch.tensor(0.693, device=outputs.device, requires_grad=True)  # ln(2) for binary classification
         
         return loss
     
@@ -177,7 +177,7 @@ class MultiTaskLoss(nn.Module):
         # Check for NaN/Inf and return a safe fallback
         if torch.isnan(loss) or torch.isinf(loss):
             print("Warning: NaN/Inf detected in smoothed cross-entropy loss, using fallback")
-            return torch.tensor(1.0, device=outputs.device, requires_grad=True)
+            return torch.tensor(0.693, device=outputs.device, requires_grad=True)  # ln(2) for binary classification
         
         return loss
     
