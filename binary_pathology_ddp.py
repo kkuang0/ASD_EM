@@ -2,11 +2,10 @@ import os
 import argparse
 import pandas as pd
 from PIL import Image
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupKFold
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
@@ -100,9 +99,18 @@ def run(rank, world_size, args):
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
 
     df = pd.read_csv(args.csv)
-    train_df, val_df = train_test_split(
-        df, test_size=0.2, stratify=df["pathology"], random_state=42
-    )
+    if "patient_id" not in df.columns:
+        raise ValueError("CSV must contain a 'patient_id' column for grouping")
+
+    gkf = GroupKFold(n_splits=args.n_splits)
+    groups = df["patient_id"]
+    splits = list(gkf.split(df, groups=groups))
+    if args.fold >= len(splits):
+        raise ValueError(f"Fold index {args.fold} out of range for {len(splits)} splits")
+
+    train_idx, val_idx = splits[args.fold]
+    train_df = df.iloc[train_idx].reset_index(drop=True)
+    val_df = df.iloc[val_idx].reset_index(drop=True)
 
     train_dataset = PathologyDataset(train_df, transform=build_transforms(train=True))
     val_dataset = PathologyDataset(val_df, transform=build_transforms(train=False))
@@ -154,6 +162,13 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--port", type=int, default=12355)
     parser.add_argument("--backend", default="nccl", choices=["nccl", "gloo"])
+    parser.add_argument("--n-splits", type=int, default=5, help="Number of group CV folds")
+    parser.add_argument(
+        "--fold",
+        type=int,
+        default=0,
+        help="Which fold to use for validation (0-indexed)",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
